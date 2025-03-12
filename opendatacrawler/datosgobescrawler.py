@@ -21,9 +21,10 @@ class datosGobEsCrawler(interface):
             'query': 'select distinct ?dataset where{?dataset a <http://www.w3.org/ns/dcat#Dataset>}'
         }
         header = {
-            'Accept': 'application/sparql-results+json'
+            'Accept': 'application/sparql-results+json',
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
         }
-        res = requests.get(url, params=params, headers=header)
+        res = requests.get(url, verify=False, params=params, headers=header)
 
         for dataset in res.json()['results']['bindings']:
             ids.append(dataset['dataset']['value'].split("/")[-1])
@@ -36,6 +37,8 @@ class datosGobEsCrawler(interface):
         aux['name'] = meta.get('title', None)
         if aux['name'] is not None:
             aux['name'] = meta['title'][0]['_value']
+            aux['language'] = meta['title'][0]['_lang']
+
         aux['downloadUrl'] = meta.get('accessURL', None)
         if aux['downloadUrl'] is None:
               aux['downloadUrl'] = meta.get('accessURL', None)
@@ -43,20 +46,24 @@ class datosGobEsCrawler(interface):
         aux['size'] = meta.get('byteSize', None)
 
         return aux
-
+    
     def get_package(self, id):
         # Obtain a package with all their metadata
         try:
             url = "https://datos.gob.es/apidata/catalog/dataset/" + id
-            response = requests.get(url)
+            headers = {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+            }
+            response = requests.get(url, verify=False, headers = headers)
 
             if response.status_code == 200:
                 meta = response.json()['result']['items'][0]
                 metadata = dict()
-
                 metadata['identifier'] = id
                 metadata['img'] = 'https://www.google.com/url?sa=i&url=https%3A%2F%2Ftwitter.com%2Fdatosgob&psig=AOvVaw0S3XMbqIR169Ky85_jiAZ9&ust=1676033201784000&source=images&cd=vfe&ved=0CBAQjRxqFwoTCMD7t6-8iP0CFQAAAAAdAAAAABAE'
                 metadata['title'] = re.sub(r'\([^)]*\)', '', meta['title'][0]['_value'])  # Remove () content
+                metadata['file_name'] = str(metadata['identifier']) + '-' + str(self.domain.split('.')[1]) + '-' + str(metadata['title']).replace(" ", "_")
                 if len(meta['title']) > 1:
                     for t in meta['title']:
                         if t['_lang']=='es':

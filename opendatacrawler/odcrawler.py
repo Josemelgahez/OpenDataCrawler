@@ -15,7 +15,7 @@ from INECrawler import INECrawler
 from setup_logger import logger
 from sys import exit
 import time
-
+from frictionless import  describe
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -49,10 +49,10 @@ class OpenDataCrawler():
         dms = dict()
 
         dms['Socrata'] = "/api/catalog/v1"
+        dms['datosGobEs'] = '/apidata/catalog/dataset?_sort=title&_pageSize=1'
         dms['CKAN'] = "/api/3/action/package_list"
         dms['WorldBank'] = '/ddhxext/DatasetList'
         dms['EuroStat'] = '/estat-navtree-portlet-prod/BulkDownloadListing?sort=1&dir=metadata'
-        dms['datosGobEs'] = '/apidata/catalog/dataset?_sort=title&_pageSize=1'
         dms['Zenodo'] = '/api/records/'
         dms['OpenDataSoft'] = '/api/v2/catalog'
         dms['INE'] = '/wstempus/js/ES/OPERACIONES_DISPONIBLES'
@@ -63,7 +63,13 @@ class OpenDataCrawler():
                 if self.domain[-1] == "/":
                     self.domain = self.domain[:-1]
 
-                response = requests.get(self.domain+v, verify=False)
+                headers = {
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+                }
+
+                response = requests.get(self.domain+v, verify=False, headers = headers)
+                
                 # If the content-type not is a webpage(we want a json api response) and the result code is 200
                 if response.status_code == 200 and response.headers['Content-Type']!="text/html":
                     self.dms = k
@@ -105,6 +111,11 @@ class OpenDataCrawler():
             if url[-4] != 'html':
 
                 logger.info("Saving... %s ", url)
+
+                headers = {
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+                }
 
                 with requests.get(url, stream=True, timeout=60, verify=False) as r:
                     if r.status_code == 200:
@@ -155,8 +166,11 @@ class OpenDataCrawler():
             if url[-4] != 'html':
 
                 logger.info("Saving... %s ", url)
-               
-                with requests.get(url, stream=True, timeout=20, verify=False) as r:
+                headers = {
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+                }
+                with requests.get(url, stream=True, timeout=20, verify=False, headers = headers) as r:
                     if r.status_code == 200:
                         # Try to obtain the file name inside the link, else
                         # use the last part of the url with the dataset extension
@@ -170,7 +184,7 @@ class OpenDataCrawler():
                         path = self.save_path+"/"+fname.replace('"', '')
 
                         # Write the content on a file
-                        loader = requests.get(url, stream=True)
+                        loader = requests.get(url, stream=True, headers = headers)
 
                         encoding = "cp1252"
                         if loader.apparent_encoding == 'utf-8':
@@ -216,20 +230,37 @@ class OpenDataCrawler():
             logger.error(e)
             return None
 
-    def save_metadata(self, data):
-
-        """ Save the dict containing the metadata on a json file"""
-        try:
-            with open(self.save_path + "/meta_"+str(data['file_name'])+'.json',
-                      'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            logger.error('Error saving metadata  %s',
-                         self.save_path + "/meta_"+data['file_name']+'.json')
-            logger.error(e)
-
     def get_package_list(self):
         return self.dms_instance.get_package_list()
 
     def get_package(self, id):
         return self.dms_instance.get_package(id)
+    
+    def save_metadata(self, data):
+        """Combina los metadatos extraidos por cada crawler específico con los generados por Frictionless."""
+        try:
+            # Sanear el nombre del archivo
+            safe_file_name = re.sub(r'[<>:"/\\|?*]', '_', data['file_name'])[:150]
+            meta_path = os.path.join(self.save_path, f"meta_{safe_file_name}.json")
+
+            # Ver si hay recursos que describir
+            if 'resources' in data and isinstance(data['resources'], list):
+                for resource in data['resources']:
+                    dataset_path = resource.get('path')
+                    if dataset_path and os.path.exists(dataset_path):
+                        try:
+                            # Extraer metadatos con Frictionless
+                            resource_metadata = describe(dataset_path).to_dict()
+
+                            # Fusionar con los metadatos existentes
+                            resource.update(resource_metadata)  
+
+                        except Exception as e:
+                            print(f"Error describiendo dataset {dataset_path}: {e}")
+
+            # Guardar metadatos combinados en un único JSON
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+                
+        except Exception as e:
+            print(f"Error guardando metadatos {meta_path}: {e}")

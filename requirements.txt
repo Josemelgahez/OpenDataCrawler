@@ -13,3 +13,5 @@ tqdm==4.63.0
 url-normalize==1.4.3
 urllib3==1.26.8
 w3lib==1.22.0
+Levenshtein==0.27.1
+frictionless==5.18.0
